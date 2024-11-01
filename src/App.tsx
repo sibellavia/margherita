@@ -2,14 +2,14 @@ import MarkdownEditor from "./components/Editor";
 
 function App() {
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-900">
+    <div className="flex h-screen bg-gray-950">
       {/* Sidebar */}
-      <div className="w-64 border-r border-gray-200 dark:border-gray-800">
+      <div className="w-64 border-r border-gray-800">
         {/* File tree will go here */}
       </div>
 
-      {/* Editor */}
-      <div className="flex-1">
+      {/* Editor container */}
+      <div className="flex-1 h-full">
         <MarkdownEditor />
       </div>
     </div>
