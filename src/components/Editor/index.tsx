@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 interface Line {
   id: string;
@@ -11,7 +11,7 @@ const MarkdownEditor = () => {
     {
       id: "1",
       text: "",
-      isActive: false,
+      isActive: true, // Start with active first line
     },
   ]);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -24,7 +24,7 @@ const MarkdownEditor = () => {
       return `<h2 class="text-2xl font-bold mb-3">${text.slice(3)}</h2>`;
     }
     if (text.startsWith("### ")) {
-      return `<h3 class="text-xl font-bold mb-2">${text.slice(4)}</h3>`;
+      return `<h3 class="text-lg font-bold mb-2">${text.slice(4)}</h3>`;
     }
 
     if (text.startsWith("- ")) {
@@ -42,16 +42,6 @@ const MarkdownEditor = () => {
     return processed
       ? `<div class="mb-1 leading-relaxed">${processed}</div>`
       : '<div class="h-6"></div>';
-  };
-
-  const handleLineClick = (id: string, event: React.MouseEvent) => {
-    event.preventDefault();
-    setLines((prevLines) =>
-      prevLines.map((line) => ({
-        ...line,
-        isActive: line.id === id,
-      })),
-    );
   };
 
   const handleLineChange = (id: string, newText: string) => {
@@ -83,14 +73,12 @@ const MarkdownEditor = () => {
   const removeLine = (lineId: string) => {
     const currentIndex = lines.findIndex((l) => l.id === lineId);
 
-    // Don't remove if it's the last remaining line
     if (lines.length === 1) {
       return;
     }
 
     setLines((prevLines) => {
       const newLines = prevLines.filter((line) => line.id !== lineId);
-      // Activate the previous line (or the next one if we're at the start)
       const newActiveIndex = Math.max(0, currentIndex - 1);
       return newLines.map((line, index) => ({
         ...line,
@@ -126,7 +114,6 @@ const MarkdownEditor = () => {
         break;
 
       case "Backspace":
-        // If line is empty and there are other lines, remove this line
         if (currentLine.text === "" && lines.length > 1) {
           event.preventDefault();
           removeLine(lineId);
@@ -145,13 +132,40 @@ const MarkdownEditor = () => {
     }
   };
 
+  const handleEditorClick = (event: React.MouseEvent) => {
+    if (
+      event.target === event.currentTarget ||
+      event.target === editorRef.current?.firstChild
+    ) {
+      if (lines.every((line) => !line.isActive)) {
+        setLines((prevLines) =>
+          prevLines.map((line, index) => ({
+            ...line,
+            isActive: index === prevLines.length - 1,
+          })),
+        );
+      }
+    }
+  };
+
+  const handleLineClick = (id: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setLines((prevLines) =>
+      prevLines.map((line) => ({
+        ...line,
+        isActive: line.id === id,
+      })),
+    );
+  };
+
   return (
     <div
       ref={editorRef}
       className="h-full bg-gray-950 text-gray-100 overflow-auto focus:outline-none"
+      onClick={handleEditorClick}
       tabIndex={-1}
     >
-      <div className="space-y-1">
+      <div className="min-h-full space-y-1">
         {lines.map((line) => (
           <div
             key={line.id}
