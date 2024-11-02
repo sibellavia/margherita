@@ -1,11 +1,14 @@
+import { invoke } from "@tauri-apps/api/core";
+import "./App.css";
 import MarkdownEditor from "./components/Editor";
+import FileTree from "./components/FileTree";
 
 function App() {
   return (
     <div className="flex h-screen bg-gray-950">
       {/* Sidebar */}
       <div className="w-64 border-r border-gray-800">
-        {/* File tree will go here */}
+        <FileTree />
       </div>
 
       {/* Editor container */}

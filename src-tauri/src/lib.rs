@@ -1,14 +1,27 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct FileItem {
+    name: String,
+}
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+async fn list_files() -> Result<Vec<FileItem>, String> {
+    // For testing, just return some mock data
+    Ok(vec![
+        FileItem {
+            name: "test1.md".into(),
+        },
+        FileItem {
+            name: "test2.md".into(),
+        },
+    ])
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![list_files])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
