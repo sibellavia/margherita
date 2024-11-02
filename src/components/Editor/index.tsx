@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 
 interface Line {
   id: string;
@@ -6,7 +8,16 @@ interface Line {
   isActive: boolean;
 }
 
-const MarkdownEditor = () => {
+interface SaveFileRequest {
+  name: string;
+  content: string;
+}
+
+interface EditorProps {
+  onSave?: () => void;
+}
+
+const MarkdownEditor: React.FC<EditorProps> = ({ onSave }) => {
   const [lines, setLines] = useState<Line[]>([
     {
       id: "1",
@@ -14,6 +25,7 @@ const MarkdownEditor = () => {
       isActive: true, // Start with active first line
     },
   ]);
+  const [currentFileName, setCurrentFileName] = useState<string>("");
   const editorRef = useRef<HTMLDivElement>(null);
 
   const parseMarkdownLine = (text: string): string => {
@@ -157,6 +169,66 @@ const MarkdownEditor = () => {
       })),
     );
   };
+
+  const handleSave = async () => {
+    console.log("save triggered");
+
+    try {
+      // If no filename set, show save dialog
+      let filePath = currentFileName;
+      if (!filePath) {
+        console.log("Opening save dialog");
+        const path = await save({
+          defaultPath: "untitled.md",
+          filters: [
+            {
+              name: "Markdown",
+              extensions: ["md"],
+            },
+          ],
+        });
+
+        if (!path) {
+          console.log("Save dialog cancelled");
+          return;
+        }
+
+        filePath = path;
+        console.log("Selected path:", filePath);
+        setCurrentFileName(filePath);
+      }
+
+      // Combine all lines into content
+      const content = lines.map((line) => line.text).join("\n");
+      console.log("Saving content to:", filePath);
+
+      await invoke<string>("save_file", {
+        request: {
+          name: filePath,
+          content: content,
+        },
+      });
+
+      console.log("File saved successfully");
+      onSave?.();
+    } catch (err) {
+      console.error("Failed to save:", err);
+    }
+  };
+
+  // Keyboard shortcut for save
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        console.log("Save shortcut detected");
+        e.preventDefault();
+        handleSave();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [lines, currentFileName]);
 
   return (
     <div
