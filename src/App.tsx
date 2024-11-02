@@ -5,23 +5,31 @@ import MarkdownEditor from "./components/Editor";
 import FileTree from "./components/FileTree";
 
 function App() {
+  // keep track of the current file path and when to refresh the file tree
+  const [selectedFilePath, setSelectedFilePath] = useState<string>("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const handleFileSaved = () => {
-    // Increment to trigger FileTree refresh
+  // Called when a file is selected in the file tree
+  const handleFileSelect = (path: string) => {
+    setSelectedFilePath(path);
+  };
+
+  // Called after a successful save to refresh the file tree
+  const handleSave = () => {
     setRefreshTrigger((prev) => prev + 1);
   };
 
   return (
     <div className="flex h-screen bg-gray-950">
-      {/* Sidebar */}
       <div className="w-64 border-r border-gray-800">
-        <FileTree key={refreshTrigger} />
+        <FileTree
+          key={refreshTrigger}
+          onFileSelect={handleFileSelect}
+          currentFile={selectedFilePath}
+        />
       </div>
-
-      {/* Editor container */}
       <div className="flex-1 h-full">
-        <MarkdownEditor onSave={handleFileSaved} />
+        <MarkdownEditor onSave={handleSave} filePath={selectedFilePath} />
       </div>
     </div>
   );

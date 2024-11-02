@@ -15,6 +15,12 @@ pub struct SaveFileRequest {
     content: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct FileContent {
+    path: String,
+    content: String,
+}
+
 // Get the standard margherita directory in Documents
 fn get_margherita_dir() -> Result<PathBuf, String> {
     dirs::document_dir()
@@ -52,19 +58,25 @@ async fn list_files() -> Result<Vec<FileItem>, String> {
         return Ok(Vec::new());
     }
 
-    // Read directory contents
+    // If directory is empty, return empty vec
+    if !dir.read_dir().map_err(|e| e.to_string())?.next().is_some() {
+        return Ok(Vec::new());
+    }
+
+    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
     let mut items = Vec::new();
-    let entries = fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     for entry in entries {
         match entry {
             Ok(entry) => {
-                // Only include .md files
+                let file_type = entry.file_type().map_err(|e| e.to_string())?;
+
+                // Only show .md files
                 if let Some(ext) = entry.path().extension() {
                     if ext == "md" {
                         items.push(FileItem {
                             name: entry.file_name().to_string_lossy().into_owned(),
-                            is_dir: false,
+                            is_dir: file_type.is_dir(),
                         });
                     }
                 }
@@ -108,6 +120,27 @@ async fn save_file(request: SaveFileRequest) -> Result<String, String> {
     Ok(file_path.to_string_lossy().into_owned())
 }
 
+#[tauri::command]
+async fn read_file(path: String) -> Result<FileContent, String> {
+    println!("Reading file: {}", path);
+
+    // Get the margherita directory
+    let dir = get_margherita_dir()?;
+
+    // Combine directory path with file name
+    let file_path = dir.join(&path);
+    println!("Full file path: {:?}", file_path);
+
+    // Read the file content
+    let content =
+        fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+
+    Ok(FileContent {
+        path, // Keep the original relative path for the UI
+        content,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -115,7 +148,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ensure_margherita_dir,
             list_files,
-            save_file
+            save_file,
+            read_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

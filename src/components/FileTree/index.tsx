@@ -7,7 +7,12 @@ interface FileItem {
   is_dir: boolean;
 }
 
-const FileTree: React.FC = () => {
+interface FileTreeProps {
+  onFileSelect?: (path: string) => void;
+  currentFile?: string;
+}
+
+const FileTree: React.FC<FileTreeProps> = ({ onFileSelect, currentFile }) => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -47,7 +52,12 @@ const FileTree: React.FC = () => {
         {files.map((file, index) => (
           <li
             key={index}
-            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-800 cursor-pointer text-sm"
+            onClick={() => onFileSelect?.(file.name)}
+            className={`
+              flex items-center gap-2 px-2 py-1 rounded
+              hover:bg-gray-800 cursor-pointer text-sm
+              ${currentFile === file.name ? "bg-gray-800" : ""}
+            `}
           >
             {file.is_dir ? (
               <Folder className="w-4 h-4 text-gray-400" />

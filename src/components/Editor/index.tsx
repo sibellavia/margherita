@@ -8,6 +8,11 @@ interface Line {
   isActive: boolean;
 }
 
+interface FileContent {
+  path: string;
+  content: string;
+}
+
 interface SaveFileRequest {
   name: string;
   content: string;
@@ -15,17 +20,14 @@ interface SaveFileRequest {
 
 interface EditorProps {
   onSave?: () => void;
+  filePath?: string;
 }
 
-const MarkdownEditor: React.FC<EditorProps> = ({ onSave }) => {
+const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
   const [lines, setLines] = useState<Line[]>([
-    {
-      id: "1",
-      text: "",
-      isActive: true, // Start with active first line
-    },
+    { id: "1", text: "", isActive: true },
   ]);
-  const [currentFileName, setCurrentFileName] = useState<string>("");
+  const [currentFilePath, setCurrentFilePath] = useState<string>("");
   const editorRef = useRef<HTMLDivElement>(null);
 
   const parseMarkdownLine = (text: string): string => {
@@ -171,13 +173,10 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave }) => {
   };
 
   const handleSave = async () => {
-    console.log("save triggered");
-
     try {
-      // If no filename set, show save dialog
-      let filePath = currentFileName;
+      // Get file path - either existing or from save dialog
+      let filePath = currentFilePath;
       if (!filePath) {
-        console.log("Opening save dialog");
         const path = await save({
           defaultPath: "untitled.md",
           filters: [
@@ -188,20 +187,15 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave }) => {
           ],
         });
 
-        if (!path) {
-          console.log("Save dialog cancelled");
-          return;
-        }
-
+        if (!path) return; // User cancelled
         filePath = path;
-        console.log("Selected path:", filePath);
-        setCurrentFileName(filePath);
+        setCurrentFilePath(filePath);
       }
 
-      // Combine all lines into content
+      // Prepare content
       const content = lines.map((line) => line.text).join("\n");
-      console.log("Saving content to:", filePath);
 
+      // Save file
       await invoke<string>("save_file", {
         request: {
           name: filePath,
@@ -209,26 +203,51 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave }) => {
         },
       });
 
-      console.log("File saved successfully");
+      // Notify parent for file tree refresh
       onSave?.();
     } catch (err) {
       console.error("Failed to save:", err);
     }
   };
 
-  // Keyboard shortcut for save
+  // Update the effect hook to use proper dependencies
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        console.log("Save shortcut detected");
         e.preventDefault();
         handleSave();
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [lines, currentFileName]);
+    document.addEventListener("keydown", handleKeyDown); // Changed from window to document to match your implementation
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [lines]); // Only depend on lines since we're getting currentFilePath from props
+
+  // Load file content when filePath changes
+  useEffect(() => {
+    const loadFile = async () => {
+      if (!filePath) return;
+
+      try {
+        const file = await invoke<FileContent>("read_file", { path: filePath });
+        setCurrentFilePath(file.path);
+
+        // Convert content to lines
+        const content = file.content.split("\n");
+        setLines(
+          content.map((text, index) => ({
+            id: String(index + 1),
+            text,
+            isActive: index === 0,
+          })),
+        );
+      } catch (err) {
+        console.error("Failed to load file:", err);
+      }
+    };
+
+    loadFile();
+  }, [filePath]);
 
   return (
     <div
