@@ -13,11 +13,6 @@ interface FileContent {
   content: string;
 }
 
-interface SaveFileRequest {
-  name: string;
-  content: string;
-}
-
 interface EditorProps {
   onSave?: () => void;
   filePath?: string;
@@ -31,7 +26,6 @@ interface StyledSegment {
 
 const parseFusionLine = (text: string): StyledSegment[] => {
   const segments: StyledSegment[] = [];
-  let currentText = text;
 
   // Handle all heading levels first
   if (text.startsWith("#")) {
@@ -141,26 +135,6 @@ const FusionLine: React.FC<{
         return "text-lg font-bold";
       case 6:
         return "text-base font-bold";
-      default:
-        return "";
-    }
-  };
-
-  // Helper function to get heading margins
-  const getHeadingMargins = (level: number) => {
-    switch (level) {
-      case 1:
-        return "mb-8 mt-6";
-      case 2:
-        return "mb-6 mt-5";
-      case 3:
-        return "mb-4 mt-4";
-      case 4:
-        return "mb-3 mt-3";
-      case 5:
-        return "mb-2 mt-2";
-      case 6:
-        return "mb-2 mt-2";
       default:
         return "";
     }
@@ -327,34 +301,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
   ]);
   const [currentFilePath, setCurrentFilePath] = useState<string>("");
   const editorRef = useRef<HTMLDivElement>(null);
-
-  const parseMarkdownLine = (text: string): string => {
-    if (text.startsWith("# ")) {
-      return `<h1 class="text-3xl font-bold mb-4">${text.slice(2)}</h1>`;
-    }
-    if (text.startsWith("## ")) {
-      return `<h2 class="text-2xl font-bold mb-3">${text.slice(3)}</h2>`;
-    }
-    if (text.startsWith("### ")) {
-      return `<h3 class="text-lg font-bold mb-2">${text.slice(4)}</h3>`;
-    }
-
-    if (text.startsWith("- ")) {
-      return `<div class="flex gap-2 my-1 ml-4">• ${text.slice(2)}</div>`;
-    }
-
-    let processed = text;
-    processed = processed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    processed = processed.replace(/\*(.*?)\*/g, "<em>$1</em>");
-    processed = processed.replace(
-      /`([^`]+)`/g,
-      '<code class="bg-gray-800 px-1 rounded">$1</code>',
-    );
-
-    return processed
-      ? `<div class="mb-1 leading-relaxed">${processed}</div>`
-      : '<div class="h-6"></div>';
-  };
 
   const handleLineChange = (id: string, newText: string) => {
     setLines((prevLines) =>
