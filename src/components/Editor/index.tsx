@@ -255,15 +255,24 @@ const FusionLine: React.FC<{
 
   // Non-active lines
   if (isEmptyLine) {
-    return <div className="h-4" onClick={onClick} />; // Paragraph break
+    // Increase paragraph break spacing
+    return <div className="h-6" onClick={onClick} />;
   }
 
   return (
     <div
       className={`
-            py-1 px-4 group-hover:bg-gray-900 group-hover:bg-opacity-20 rounded
-            transition-colors duration-100
-            ${hasHardBreak ? 'after:content-["↵"] after:text-gray-600 after:ml-1' : ""}
+            ${
+              hasHardBreak
+                ? "py-0.5" // Tighter spacing for line breaks
+                : "py-2" // More spacing for paragraphs
+            }
+            px-4
+            group-hover:bg-gray-900
+            group-hover:bg-opacity-20
+            rounded
+            transition-colors
+            duration-100
           `}
       onClick={onClick}
     >
@@ -307,6 +316,7 @@ const FusionLine: React.FC<{
             return <span key={index}>{segment.text}</span>;
         }
       })}
+      {hasHardBreak && <span className="text-gray-600 ml-1 text-sm">↵</span>}
     </div>
   );
 };
@@ -421,7 +431,67 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         ),
       );
 
-      // Create new line and set it as active
+      // Create new line
+      const newLine: Line = {
+        id: Date.now().toString(),
+        text: "",
+        isActive: true,
+      };
+
+      // Add the new line after the current one
+      setLines((prevLines) => {
+        const newLines = [
+          ...prevLines.slice(0, currentIndex + 1),
+          newLine,
+          ...prevLines.slice(currentIndex + 1),
+        ];
+        return newLines.map((line) => ({
+          ...line,
+          isActive: line.id === newLine.id,
+        }));
+      });
+
+      return;
+    }
+
+    // Handle regular Enter
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+
+      // Handle list continuation
+      if (isListItem) {
+        // Break out of list if line is empty
+        if (currentLine.text === "- ") {
+          setLines((prevLines) =>
+            prevLines.map((line) =>
+              line.id === lineId ? { ...line, text: "" } : line,
+            ),
+          );
+          return;
+        }
+
+        // Continue list
+        const newLine: Line = {
+          id: Date.now().toString(),
+          text: "- ",
+          isActive: true,
+        };
+
+        setLines((prevLines) => {
+          const newLines = [
+            ...prevLines.slice(0, currentIndex + 1),
+            newLine,
+            ...prevLines.slice(currentIndex + 1),
+          ];
+          return newLines.map((line) => ({
+            ...line,
+            isActive: line.id === newLine.id,
+          }));
+        });
+        return;
+      }
+
+      // Regular new line
       const newLine: Line = {
         id: Date.now().toString(),
         text: "",
@@ -442,71 +512,9 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
       return;
     }
 
+    // Handle other keys
     switch (event.key) {
-      case "Enter":
-        if (!event.shiftKey) {
-          // Only handle regular enter
-          event.preventDefault();
-
-          // Handle list continuation
-          if (isListItem) {
-            // If line is empty (just "- "), break out of list
-            if (currentLine.text === "- ") {
-              setLines((prevLines) => {
-                const newLines = [...prevLines];
-                newLines[currentIndex] = {
-                  ...currentLine,
-                  text: "", // Clear the "- "
-                };
-                return newLines;
-              });
-              return;
-            }
-
-            // Continue the list with a new item
-            const newLine: Line = {
-              id: Date.now().toString(),
-              text: "- ", // Start with list marker
-              isActive: true,
-            };
-
-            setLines((prevLines) => {
-              const newLines = [
-                ...prevLines.slice(0, currentIndex + 1),
-                newLine,
-                ...prevLines.slice(currentIndex + 1),
-              ];
-              return newLines.map((line) => ({
-                ...line,
-                isActive: line.id === newLine.id,
-              }));
-            });
-            return;
-          }
-
-          // Normal line handling
-          const newLine: Line = {
-            id: Date.now().toString(),
-            text: "",
-            isActive: true,
-          };
-
-          setLines((prevLines) => {
-            const newLines = [
-              ...prevLines.slice(0, currentIndex + 1),
-              newLine,
-              ...prevLines.slice(currentIndex + 1),
-            ];
-            return newLines.map((line) => ({
-              ...line,
-              isActive: line.id === newLine.id,
-            }));
-          });
-        }
-        break;
-
       case "Backspace":
-        // If at start of list item, remove the "- " prefix
         if (isListItem && window.getSelection()?.anchorOffset === 2) {
           event.preventDefault();
           setLines((prevLines) =>
@@ -517,7 +525,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
           return;
         }
 
-        // Normal backspace handling for empty lines
         if (currentLine.text === "" && lines.length > 1) {
           event.preventDefault();
           removeLine(lineId);
