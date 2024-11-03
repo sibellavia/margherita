@@ -33,13 +33,18 @@ const parseFusionLine = (text: string): StyledSegment[] => {
   const segments: StyledSegment[] = [];
   let currentText = text;
 
-  // Handle headings first
-  if (text.startsWith("# ")) {
-    return [{ text, type: "heading", level: 1 }];
-  } else if (text.startsWith("## ")) {
-    return [{ text, type: "heading", level: 2 }];
-  } else if (text.startsWith("### ")) {
-    return [{ text, type: "heading", level: 3 }];
+  // Handle all heading levels first
+  if (text.startsWith("#")) {
+    const match = text.match(/^(#{1,6})\s/);
+    if (match) {
+      return [
+        {
+          text,
+          type: "heading",
+          level: match[1].length, // Number of # symbols determines level
+        },
+      ];
+    }
   }
 
   // Process the text segment by segment
@@ -115,9 +120,49 @@ const FusionLine: React.FC<{
   const segments = parseFusionLine(text);
   const isSpecialFormat =
     text.startsWith("#") ||
-    text.match(/(?<!\*)\*[^*].*?\*/) ||
-    text.includes("**"); // bold detection
+    text.includes("**") ||
+    text.match(/(?<!\*)\*[^*].*?\*/);
   const isList = text.startsWith("- ");
+
+  // Helper function to get heading styles
+  const getHeadingStyles = (level: number) => {
+    switch (level) {
+      case 1:
+        return "text-4xl font-bold";
+      case 2:
+        return "text-3xl font-bold";
+      case 3:
+        return "text-2xl font-bold";
+      case 4:
+        return "text-xl font-bold";
+      case 5:
+        return "text-lg font-bold";
+      case 6:
+        return "text-base font-bold";
+      default:
+        return "";
+    }
+  };
+
+  // Helper function to get heading margins
+  const getHeadingMargins = (level: number) => {
+    switch (level) {
+      case 1:
+        return "mb-8 mt-6";
+      case 2:
+        return "mb-6 mt-5";
+      case 3:
+        return "mb-4 mt-4";
+      case 4:
+        return "mb-3 mt-3";
+      case 5:
+        return "mb-2 mt-2";
+      case 6:
+        return "mb-2 mt-2";
+      default:
+        return "";
+    }
+  };
 
   if (isActive) {
     // Special handling for formatted text (headings, bold, italic)
@@ -139,11 +184,7 @@ const FusionLine: React.FC<{
                   return (
                     <span
                       key={index}
-                      className={`
-                                        ${segment.level === 1 ? "text-3xl font-bold" : ""}
-                                        ${segment.level === 2 ? "text-2xl font-bold" : ""}
-                                        ${segment.level === 3 ? "text-xl font-bold" : ""}
-                                      `}
+                      className={`block ${getHeadingStyles(segment.level || 1)} mb-4`}
                     >
                       {segment.text}
                     </span>
@@ -219,12 +260,7 @@ const FusionLine: React.FC<{
             return (
               <span
                 key={index}
-                className={`
-                    block
-                    ${segment.level === 1 ? "text-3xl font-bold mb-4" : ""}
-                    ${segment.level === 2 ? "text-2xl font-bold mb-3" : ""}
-                    ${segment.level === 3 ? "text-xl font-bold mb-2" : ""}
-                  `}
+                className={`block ${getHeadingStyles(segment.level || 1)} mb-4`}
               >
                 {segment.text.replace(/^#+\s+/, "")}
               </span>
