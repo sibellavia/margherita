@@ -23,6 +23,219 @@ interface EditorProps {
   filePath?: string;
 }
 
+interface StyledSegment {
+  text: string;
+  type: "bold" | "italic" | "heading" | "list" | "code" | "plain";
+  level?: number;
+}
+
+const parseFusionLine = (text: string): StyledSegment[] => {
+  const segments: StyledSegment[] = [];
+  let currentText = text;
+
+  // Handle headings first
+  if (text.startsWith("# ")) {
+    return [{ text, type: "heading", level: 1 }];
+  } else if (text.startsWith("## ")) {
+    return [{ text, type: "heading", level: 2 }];
+  } else if (text.startsWith("### ")) {
+    return [{ text, type: "heading", level: 3 }];
+  }
+
+  // Process the text segment by segment
+  let position = 0;
+  let result = "";
+
+  while (position < text.length) {
+    // Bold
+    if (text.slice(position).match(/^\*\*.*?\*\*/)) {
+      const match = text.slice(position).match(/^\*\*(.*?)\*\*/);
+      if (match) {
+        if (result) {
+          segments.push({ text: result, type: "plain" });
+          result = "";
+        }
+        segments.push({ text: match[0], type: "bold" });
+        position += match[0].length;
+        continue;
+      }
+    }
+
+    // Italic (using single asterisk)
+    if (text.slice(position).match(/^\*[^*].*?\*/)) {
+      const match = text.slice(position).match(/^\*(.*?)\*/);
+      if (match) {
+        if (result) {
+          segments.push({ text: result, type: "plain" });
+          result = "";
+        }
+        segments.push({ text: match[0], type: "italic" });
+        position += match[0].length;
+        continue;
+      }
+    }
+
+    // Inline Code
+    if (text.slice(position).match(/^`.*?`/)) {
+      const match = text.slice(position).match(/^`(.*?)`/);
+      if (match) {
+        if (result) {
+          segments.push({ text: result, type: "plain" });
+          result = "";
+        }
+        segments.push({ text: match[0], type: "code" });
+        position += match[0].length;
+        continue;
+      }
+    }
+
+    // Lists
+    if (position === 0 && text.startsWith("- ")) {
+      return [{ text, type: "list" }];
+    }
+
+    result += text[position];
+    position++;
+  }
+
+  if (result) {
+    segments.push({ text: result, type: "plain" });
+  }
+
+  return segments.length ? segments : [{ text, type: "plain" }];
+};
+
+const FusionLine: React.FC<{
+  text: string;
+  isActive: boolean;
+  onChange?: (text: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+  onClick?: (e: React.MouseEvent) => void;
+}> = ({ text, isActive, onChange, onKeyDown, onClick }) => {
+  const segments = parseFusionLine(text);
+  const isSpecialFormat =
+    text.startsWith("#") ||
+    text.includes("**") ||
+    text.match(/(?<!\*)\*[^*].*?\*/);
+
+  if (isActive) {
+    // Special handling for formatted text (headings, bold, italic)
+    if (isSpecialFormat) {
+      return (
+        <div className="relative" onClick={onClick}>
+          <div className="py-1 px-4 font-mono">
+            {segments.map((segment, index) => {
+              switch (segment.type) {
+                case "heading":
+                  return (
+                    <span
+                      key={index}
+                      className={`
+                      ${segment.level === 1 ? "text-3xl font-bold" : ""}
+                      ${segment.level === 2 ? "text-2xl font-bold" : ""}
+                      ${segment.level === 3 ? "text-xl font-bold" : ""}
+                    `}
+                    >
+                      <input
+                        type="text"
+                        value={text}
+                        onChange={(e) => onChange?.(e.target.value)}
+                        onKeyDown={onKeyDown}
+                        className="w-full bg-transparent focus:outline-none"
+                        autoFocus
+                      />
+                    </span>
+                  );
+                default:
+                  return (
+                    <input
+                      key={index}
+                      type="text"
+                      value={text}
+                      onChange={(e) => onChange?.(e.target.value)}
+                      onKeyDown={onKeyDown}
+                      className="w-full bg-transparent focus:outline-none"
+                      autoFocus
+                    />
+                  );
+              }
+            })}
+          </div>
+          <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
+        </div>
+      );
+    }
+
+    // Normal line
+    return (
+      <div className="relative" onClick={onClick}>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => onChange?.(e.target.value)}
+          onKeyDown={onKeyDown}
+          className="w-full bg-transparent py-1 px-4 focus:outline-none font-mono relative z-10"
+          autoFocus
+        />
+        <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
+      </div>
+    );
+  }
+
+  // Non-active lines
+  return (
+    <div
+      className="py-1 px-4 group-hover:bg-gray-900 group-hover:bg-opacity-20 rounded transition-colors duration-100"
+      onClick={onClick}
+    >
+      {segments.map((segment, index) => {
+        switch (segment.type) {
+          case "heading":
+            return (
+              <span
+                key={index}
+                className={`
+                  block
+                  ${segment.level === 1 ? "text-3xl font-bold mb-4" : ""}
+                  ${segment.level === 2 ? "text-2xl font-bold mb-3" : ""}
+                  ${segment.level === 3 ? "text-xl font-bold mb-2" : ""}
+                `}
+              >
+                {segment.text.replace(/^#+\s+/, "")}
+              </span>
+            );
+          case "bold":
+            return (
+              <span key={index} className="font-bold">
+                {segment.text.replace(/\*\*/g, "")}
+              </span>
+            );
+          case "italic":
+            return (
+              <span key={index} className="italic">
+                {segment.text.replace(/\*/g, "")}
+              </span>
+            );
+          case "code":
+            return (
+              <span key={index} className="bg-gray-800 px-1 rounded font-mono">
+                {segment.text.replace(/`/g, "")}
+              </span>
+            );
+          case "list":
+            return (
+              <span key={index} className="flex items-center gap-2 my-1 ml-4">
+                •{segment.text.slice(2)}
+              </span>
+            );
+          default:
+            return <span key={index}>{segment.text}</span>;
+        }
+      })}
+    </div>
+  );
+};
+
 const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
   const [lines, setLines] = useState<Line[]>([
     { id: "1", text: "", isActive: true },
@@ -258,35 +471,14 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
     >
       <div className="min-h-full space-y-1">
         {lines.map((line) => (
-          <div
-            key={line.id}
-            onClick={(e) => handleLineClick(line.id, e)}
-            className={`relative rounded cursor-text group ${
-              line.isActive ? "bg-opacity-50" : ""
-            }`}
-          >
-            {line.isActive ? (
-              <div className="relative">
-                <input
-                  type="text"
-                  value={line.text}
-                  onChange={(e) => handleLineChange(line.id, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, line.id)}
-                  className="w-full bg-transparent py-1 px-4 focus:outline-none font-mono relative z-10"
-                  autoFocus
-                />
-                <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
-              </div>
-            ) : (
-              <div className="py-1 px-4 prose prose-invert max-w-none">
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: parseMarkdownLine(line.text),
-                  }}
-                  className="group-hover:bg-gray-900 group-hover:bg-opacity-20 rounded transition-colors duration-100"
-                />
-              </div>
-            )}
+          <div key={line.id} className="relative rounded cursor-text group">
+            <FusionLine
+              text={line.text}
+              isActive={line.isActive}
+              onChange={(newText) => handleLineChange(line.id, newText)}
+              onKeyDown={(e) => handleKeyDown(e, line.id)}
+              onClick={(e) => handleLineClick(line.id, e)}
+            />
           </div>
         ))}
       </div>
