@@ -117,6 +117,7 @@ const FusionLine: React.FC<{
     text.startsWith("#") ||
     text.includes("**") ||
     text.match(/(?<!\*)\*[^*].*?\*/);
+  const isList = text.startsWith("- ");
 
   if (isActive) {
     // Special handling for formatted text (headings, bold, italic)
@@ -131,10 +132,10 @@ const FusionLine: React.FC<{
                     <span
                       key={index}
                       className={`
-                      ${segment.level === 1 ? "text-3xl font-bold" : ""}
-                      ${segment.level === 2 ? "text-2xl font-bold" : ""}
-                      ${segment.level === 3 ? "text-xl font-bold" : ""}
-                    `}
+                          ${segment.level === 1 ? "text-3xl font-bold" : ""}
+                          ${segment.level === 2 ? "text-2xl font-bold" : ""}
+                          ${segment.level === 3 ? "text-xl font-bold" : ""}
+                        `}
                     >
                       <input
                         type="text"
@@ -160,6 +161,27 @@ const FusionLine: React.FC<{
                   );
               }
             })}
+          </div>
+          <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
+        </div>
+      );
+    }
+
+    // List handling
+    if (isList) {
+      return (
+        <div className="relative" onClick={onClick}>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => onChange?.(e.target.value)}
+            onKeyDown={onKeyDown}
+            className="opacity-0 absolute inset-0 w-full bg-transparent focus:outline-none font-mono px-4 py-1"
+            autoFocus
+          />
+          <div className="flex items-start px-4 py-1 pointer-events-none">
+            <span className="text-gray-400 w-6 text-center">-</span>
+            <span className="flex-1 font-mono">{text.slice(2)}</span>
           </div>
           <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
         </div>
@@ -195,14 +217,21 @@ const FusionLine: React.FC<{
               <span
                 key={index}
                 className={`
-                  block
-                  ${segment.level === 1 ? "text-3xl font-bold mb-4" : ""}
-                  ${segment.level === 2 ? "text-2xl font-bold mb-3" : ""}
-                  ${segment.level === 3 ? "text-xl font-bold mb-2" : ""}
-                `}
+                    block
+                    ${segment.level === 1 ? "text-3xl font-bold mb-4" : ""}
+                    ${segment.level === 2 ? "text-2xl font-bold mb-3" : ""}
+                    ${segment.level === 3 ? "text-xl font-bold mb-2" : ""}
+                  `}
               >
                 {segment.text.replace(/^#+\s+/, "")}
               </span>
+            );
+          case "list":
+            return (
+              <div key={index} className="flex items-start">
+                <span className="text-gray-400 w-6 text-center">•</span>
+                <span className="flex-1">{segment.text.slice(2)}</span>
+              </div>
             );
           case "bold":
             return (
@@ -220,12 +249,6 @@ const FusionLine: React.FC<{
             return (
               <span key={index} className="bg-gray-800 px-1 rounded font-mono">
                 {segment.text.replace(/`/g, "")}
-              </span>
-            );
-          case "list":
-            return (
-              <span key={index} className="flex items-center gap-2 my-1 ml-4">
-                •{segment.text.slice(2)}
               </span>
             );
           default:
@@ -273,9 +296,25 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
 
   const handleLineChange = (id: string, newText: string) => {
     setLines((prevLines) =>
-      prevLines.map((line) =>
-        line.id === id ? { ...line, text: newText } : line,
-      ),
+      prevLines.map((line) => {
+        if (line.id === id) {
+          // If user types "- " at the start, it's a new list item
+          if (newText === "- " && !line.text.startsWith("- ")) {
+            return { ...line, text: newText };
+          }
+
+          // If it's already a list item, preserve the "- " prefix
+          if (line.text.startsWith("- ")) {
+            // Don't allow removing the "- " prefix by normal typing
+            if (!newText.startsWith("- ")) {
+              return { ...line, text: "- " + newText };
+            }
+          }
+
+          return { ...line, text: newText };
+        }
+        return line;
+      }),
     );
   };
 
@@ -317,10 +356,49 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
   const handleKeyDown = (event: React.KeyboardEvent, lineId: string) => {
     const currentIndex = lines.findIndex((l) => l.id === lineId);
     const currentLine = lines[currentIndex];
+    const isListItem = currentLine.text.startsWith("- ");
 
     switch (event.key) {
       case "Enter":
         event.preventDefault();
+
+        // Handle list continuation
+        if (isListItem) {
+          // If line is empty (just "- "), break out of list
+          if (currentLine.text === "- ") {
+            setLines((prevLines) => {
+              const newLines = [...prevLines];
+              newLines[currentIndex] = {
+                ...currentLine,
+                text: "", // Clear the "- "
+              };
+              return newLines;
+            });
+            return;
+          }
+
+          // Continue the list with a new item
+          const newLine: Line = {
+            id: Date.now().toString(),
+            text: "- ", // Start with list marker
+            isActive: true,
+          };
+
+          setLines((prevLines) => {
+            const newLines = [
+              ...prevLines.slice(0, currentIndex + 1),
+              newLine,
+              ...prevLines.slice(currentIndex + 1),
+            ];
+            return newLines.map((line) => ({
+              ...line,
+              isActive: line.id === newLine.id,
+            }));
+          });
+          return;
+        }
+
+        // Normal line handling
         const newLine: Line = {
           id: Date.now().toString(),
           text: "",
@@ -328,12 +406,12 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         };
 
         setLines((prevLines) => {
-          const currentIndex = prevLines.findIndex((l) => l.id === lineId);
-          return [
+          const newLines = [
             ...prevLines.slice(0, currentIndex + 1),
             newLine,
             ...prevLines.slice(currentIndex + 1),
-          ].map((line) => ({
+          ];
+          return newLines.map((line) => ({
             ...line,
             isActive: line.id === newLine.id,
           }));
@@ -341,6 +419,18 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         break;
 
       case "Backspace":
+        // If at start of list item, remove the "- " prefix
+        if (isListItem && window.getSelection()?.anchorOffset === 2) {
+          event.preventDefault();
+          setLines((prevLines) =>
+            prevLines.map((line) =>
+              line.id === lineId ? { ...line, text: "" } : line,
+            ),
+          );
+          return;
+        }
+
+        // Normal backspace handling for empty lines
         if (currentLine.text === "" && lines.length > 1) {
           event.preventDefault();
           removeLine(lineId);
