@@ -115,8 +115,8 @@ const FusionLine: React.FC<{
   const segments = parseFusionLine(text);
   const isSpecialFormat =
     text.startsWith("#") ||
-    text.includes("**") ||
-    text.match(/(?<!\*)\*[^*].*?\*/);
+    text.match(/(?<!\*)\*[^*].*?\*/) ||
+    text.includes("**"); // bold detection
   const isList = text.startsWith("- ");
 
   if (isActive) {
@@ -124,7 +124,15 @@ const FusionLine: React.FC<{
     if (isSpecialFormat) {
       return (
         <div className="relative" onClick={onClick}>
-          <div className="py-1 px-4 font-mono">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => onChange?.(e.target.value)}
+            onKeyDown={onKeyDown}
+            className="opacity-0 absolute inset-0 w-full bg-transparent focus:outline-none font-mono px-4 py-1"
+            autoFocus
+          />
+          <div className="px-4 py-1 pointer-events-none font-mono">
             {segments.map((segment, index) => {
               switch (segment.type) {
                 case "heading":
@@ -132,33 +140,28 @@ const FusionLine: React.FC<{
                     <span
                       key={index}
                       className={`
-                          ${segment.level === 1 ? "text-3xl font-bold" : ""}
-                          ${segment.level === 2 ? "text-2xl font-bold" : ""}
-                          ${segment.level === 3 ? "text-xl font-bold" : ""}
-                        `}
+                                        ${segment.level === 1 ? "text-3xl font-bold" : ""}
+                                        ${segment.level === 2 ? "text-2xl font-bold" : ""}
+                                        ${segment.level === 3 ? "text-xl font-bold" : ""}
+                                      `}
                     >
-                      <input
-                        type="text"
-                        value={text}
-                        onChange={(e) => onChange?.(e.target.value)}
-                        onKeyDown={onKeyDown}
-                        className="w-full bg-transparent focus:outline-none"
-                        autoFocus
-                      />
+                      {segment.text}
+                    </span>
+                  );
+                case "bold":
+                  return (
+                    <span key={index} className="font-bold">
+                      {segment.text}
+                    </span>
+                  );
+                case "italic":
+                  return (
+                    <span key={index} className="italic">
+                      {segment.text}
                     </span>
                   );
                 default:
-                  return (
-                    <input
-                      key={index}
-                      type="text"
-                      value={text}
-                      onChange={(e) => onChange?.(e.target.value)}
-                      onKeyDown={onKeyDown}
-                      className="w-full bg-transparent focus:outline-none"
-                      autoFocus
-                    />
-                  );
+                  return <span key={index}>{segment.text}</span>;
               }
             })}
           </div>

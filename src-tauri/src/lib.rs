@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri_plugin_dialog::DialogExt;
 
 #[derive(Debug, Serialize)]
 pub struct FileItem {
