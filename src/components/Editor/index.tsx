@@ -125,38 +125,30 @@ const FusionLine: React.FC<{
 
   if (isActive) {
     return (
-      <div className="relative">
-        <input
-          type="text"
-          value={node.rawContent}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={onFocus}
-          className={`
-            w-full bg-transparent px-3 py-1.5
-            focus:outline-none font-mono
-            ${node.type === 'heading' ? getHeadingClass(node.level) : 'text-base'}
-            ${node.type === 'list_item' ? `ml-${(node.listIndent || 0) * 6}` : ''}
-          `}
-          autoFocus
-        />
-      </div>
+      <input
+        type="text"
+        value={node.rawContent}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        onFocus={onFocus}
+        className={`
+          w-full bg-transparent px-3 py-1.5
+          focus:outline-none font-mono
+          ${node.type === 'heading' ? getHeadingClass(node.level) : 'text-base'}
+          ${node.type === 'list_item' ? `ml-${(node.listIndent || 0) * 6}` : ''}
+        `}
+        autoFocus
+      />
     );
   }
 
   return (
     <div 
-      className={`
-        px-3 py-1.5 cursor-text
-        ${node.type === 'list_item' ? 'my-0.5' : 'my-2'}
-        ${node.type === 'list_item' && prevNode?.type === 'list_item' ? '-mt-0.5' : ''}
-      `}
+      className="px-3 py-1.5 cursor-text"
       onClick={onFocus}
     >
       {node.type === 'heading' ? (
-        <div 
-          className={`${getHeadingClass(node.level)} mb-4`}
-        >
+        <div className={getHeadingClass(node.level)}>
           {node.content}
         </div>
       ) : node.type === 'list_item' ? (
@@ -174,8 +166,55 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
   ]);
   const [activeId, setActiveId] = useState<string>('1');
   const [currentFilePath, setCurrentFilePath] = useState<string>("");
+  const [selection, setSelection] = useState<{
+    start: number;
+    end: number;
+    nodeId: string | null;
+  } | null>(null);
   
   const editorRef = useRef<HTMLDivElement>(null);
+
+  // Track selection changes
+  useEffect(() => {
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (!selection || !editorRef.current?.contains(selection.anchorNode)) {
+        return;
+      }
+
+      // Find the containing node element
+      let element = selection.anchorNode;
+      while (element && !(element instanceof HTMLElement && element.hasAttribute('data-node-id'))) {
+        element = element.parentElement;
+      }
+
+      if (element) {
+        const nodeId = (element as HTMLElement).getAttribute('data-node-id');
+        setSelection({
+          start: selection.anchorOffset,
+          end: selection.focusOffset,
+          nodeId
+        });
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelection);
+    return () => document.removeEventListener('selectionchange', handleSelection);
+  }, []);
+
+  // Handle selection within a node
+  const handleNodeSelection = (nodeId: string, e: React.SyntheticEvent) => {
+    const element = e.target as HTMLElement;
+    const selection = window.getSelection();
+    
+    if (selection && selection.rangeCount > 0) {
+      setSelection({
+        start: selection.anchorOffset,
+        end: selection.focusOffset,
+        nodeId
+      });
+    }
+  };
 
   const handleNodeChange = (id: string, newContent: string) => {
     setNodes(prevNodes => {
@@ -368,15 +407,14 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
       onClick={() => editorRef.current?.focus()}
       tabIndex={-1}
     >
-      <div className="min-h-full p-4">
+      <div className="min-h-full p-4 space-y-0.5">
         {nodes.map((node, index) => (
           <div
             key={node.id}
             className={`
-              relative rounded-md mb-1
               ${node.id === activeId ? 'bg-gray-800/20 ring-1 ring-gray-700' : ''}
               hover:bg-gray-900/20 transition-colors duration-100
-              selection:bg-gray-500/30
+              rounded-md
             `}
             onClick={(e) => {
               e.stopPropagation();
