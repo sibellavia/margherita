@@ -27,7 +27,7 @@ interface Node {
 
 // Enhanced markdown parser for better heading support
 const parseMarkdown = (text: string, prevNode?: Node): Partial<Node> => {
-  // Heading parsing (as before)
+  // Heading parsing
   const headingMatch = text.match(/^(#{1,6})(\s+)(.+?)(\s*)$/);
   if (headingMatch) {
     const level = headingMatch[1].length;
@@ -44,28 +44,41 @@ const parseMarkdown = (text: string, prevNode?: Node): Partial<Node> => {
     }
   }
 
-  // List item parsing
-  // Match both unordered (-, *, +) and ordered (1., 2., etc.) lists with indentation
+  // List parsing with context
   const listMatch = text.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
   if (listMatch) {
     const [, indent, marker, content] = listMatch;
     const indentLevel = Math.floor(indent.length / 2);
-
     const isOrdered = /^\d+\.$/.test(marker);
-    const listType = isOrdered ? 'ordered' : 'bullet';
-    const listNumber = isOrdered ? parseInt(marker) : undefined;
+    
+    if (isOrdered) {
+      let listNumber = parseInt(marker);
+      
+      if (prevNode?.type === 'list_item' && 
+          prevNode.listType === 'ordered' &&
+          prevNode.listIndent === indentLevel) {
+        listNumber = (prevNode.listNumber || 0) + 1;
+      }
+
+      return {
+        type: 'list_item',
+        content: content.trim(),
+        rawContent: text,
+        listType: 'ordered',
+        listIndent: indentLevel,
+        listNumber
+      };
+    }
 
     return {
       type: 'list_item',
       content: content.trim(),
       rawContent: text,
-      listType,
-      listIndent: indentLevel,
-      listNumber
+      listType: 'bullet',
+      listIndent: indentLevel
     };
   }
 
-  // Empty or non-list content
   return {
     type: 'paragraph',
     content: text,
@@ -78,8 +91,9 @@ const FusionLine: React.FC<{
   isActive: boolean;
   onChange: (text: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
+  onFocus: () => void;
   prevNode?: Node;
-}> = React.memo(({ node, isActive, onChange, onKeyDown, prevNode }) => {
+}> = React.memo(({ node, isActive, onChange, onKeyDown, onFocus, prevNode }) => {
   const getHeadingClass = (level?: number) => {
     switch (level) {
       case 1: return 'text-5xl font-extrabold text-white tracking-tight';
@@ -92,7 +106,6 @@ const FusionLine: React.FC<{
     }
   };
 
-  // Render list item with proper indentation and marker
   const renderListItem = (node: Node) => {
     const indentSize = node.listIndent || 0;
     const marker = node.listType === 'ordered' ? `${node.listNumber}.` : '•';
@@ -101,9 +114,8 @@ const FusionLine: React.FC<{
       <div className={`
         flex items-start
         ${indentSize > 0 ? `ml-${indentSize * 6}` : ''}
-        group/item
       `}>
-        <span className="w-6 text-gray-500 flex-shrink-0 group-hover/item:text-gray-400">
+        <span className="w-6 text-gray-500 flex-shrink-0 select-none">
           {marker}
         </span>
         <span className="flex-1">{node.content}</span>
@@ -111,47 +123,47 @@ const FusionLine: React.FC<{
     );
   };
 
-  if (!isActive) {
+  if (isActive) {
     return (
-      <div className={`
-        px-3 py-1.5
-        ${node.type === 'list_item' ? 'my-0.5' : 'my-2'}
-        ${node.type === 'list_item' && prevNode?.type === 'list_item' ? '-mt-0.5' : ''}
-      `}>
-        {node.type === 'heading' ? (
-          <div className={`${getHeadingClass(node.level)} mb-4`}>
-            {node.content}
-          </div>
-        ) : node.type === 'list_item' ? (
-          renderListItem(node)
-        ) : (
-          <div>{node.content}</div>
-        )}
+      <div className="relative">
+        <input
+          type="text"
+          value={node.rawContent}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          className={`
+            w-full bg-transparent px-3 py-1.5
+            focus:outline-none font-mono
+            ${node.type === 'heading' ? getHeadingClass(node.level) : 'text-base'}
+            ${node.type === 'list_item' ? `ml-${(node.listIndent || 0) * 6}` : ''}
+          `}
+          autoFocus
+        />
       </div>
     );
   }
 
-  // For active line, we'll style the raw markdown
-  const activeClass = node.type === 'heading' ? getHeadingClass(node.level) : 'text-base';
-  const indentSize = node.listIndent || 0;
-
   return (
-    <div className={`
-      relative
-      ${node.type === 'list_item' ? `ml-${indentSize * 6}` : ''}
-    `}>
-      <input
-        type="text"
-        value={node.rawContent}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        className={`
-          w-full bg-transparent px-3 py-1.5
-          focus:outline-none font-mono
-          ${activeClass}
-        `}
-        autoFocus
-      />
+    <div 
+      className={`
+        px-3 py-1.5 cursor-text
+        ${node.type === 'list_item' ? 'my-0.5' : 'my-2'}
+        ${node.type === 'list_item' && prevNode?.type === 'list_item' ? '-mt-0.5' : ''}
+      `}
+      onClick={onFocus}
+    >
+      {node.type === 'heading' ? (
+        <div 
+          className={`${getHeadingClass(node.level)} mb-4`}
+        >
+          {node.content}
+        </div>
+      ) : node.type === 'list_item' ? (
+        renderListItem(node)
+      ) : (
+        <div>{node.content}</div>
+      )}
     </div>
   );
 });
@@ -170,7 +182,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
       const currentIndex = prevNodes.findIndex(n => n.id === id);
       const prevNode = currentIndex > 0 ? prevNodes[currentIndex - 1] : undefined;
       
-      // If content is empty and was a list item, convert to paragraph
       if (newContent.trim() === '' && prevNodes[currentIndex].type === 'list_item') {
         return prevNodes.map(node => 
           node.id === id 
@@ -193,9 +204,7 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
     const currentIndex = nodes.findIndex(n => n.id === nodeId);
     const currentNode = nodes[currentIndex];
     
-    // Handle list-specific behavior
     if (currentNode.type === 'list_item') {
-      // Tab for nesting
       if (e.key === 'Tab') {
         e.preventDefault();
         const newIndent = e.shiftKey 
@@ -205,7 +214,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         setNodes(prevNodes =>
           prevNodes.map(node => {
             if (node.id === nodeId) {
-              // Update the raw content with proper indentation
               const spaces = '  '.repeat(newIndent);
               const listMarker = node.listType === 'ordered' ? '1. ' : '- ';
               const content = node.content;
@@ -222,8 +230,7 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         return;
       }
 
-       // Exit list on empty content
-       if (e.key === 'Enter' && currentNode.content.trim() === '') {
+      if (e.key === 'Enter' && currentNode.content.trim() === '') {
         e.preventDefault();
         setNodes(prevNodes =>
           prevNodes.map(node =>
@@ -236,7 +243,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
       }
     }
 
-    // Continue list on Enter
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       
@@ -252,7 +258,6 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         })
       };
 
-      // Set initial raw content for list items
       if (newNode.type === 'list_item') {
         const spaces = '  '.repeat(newNode.listIndent || 0);
         const marker = newNode.listType === 'ordered' ? `${newNode.listNumber}. ` : '- ';
@@ -368,9 +373,10 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
           <div
             key={node.id}
             className={`
-              relative rounded-md mb-1 cursor-text
-              ${node.id === activeId ? 'bg-gray-800/20' : ''}
+              relative rounded-md mb-1
+              ${node.id === activeId ? 'bg-gray-800/20 ring-1 ring-gray-700' : ''}
               hover:bg-gray-900/20 transition-colors duration-100
+              selection:bg-gray-500/30
             `}
             onClick={(e) => {
               e.stopPropagation();
@@ -382,6 +388,7 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
               isActive={node.id === activeId}
               onChange={text => handleNodeChange(node.id, text)}
               onKeyDown={e => handleKeyDown(e, node.id)}
+              onFocus={() => setActiveId(node.id)}
               prevNode={index > 0 ? nodes[index - 1] : undefined}
             />
           </div>
