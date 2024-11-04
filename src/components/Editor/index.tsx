@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from 'react';
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 
-interface Line {
-  id: string;
-  text: string;
-  isActive: boolean;
+interface EditorProps {
+  onSave?: () => void;
+  filePath?: string;
 }
 
 interface FileContent {
@@ -13,532 +12,301 @@ interface FileContent {
   content: string;
 }
 
-interface EditorProps {
-  onSave?: () => void;
-  filePath?: string;
+type NodeType = 'paragraph' | 'heading' | 'list_item';
+
+interface Node {
+  id: string;
+  type: NodeType;
+  content: string;
+  rawContent: string;
+  level?: number;       // For headings
+  listType?: 'bullet' | 'ordered';
+  listIndent?: number;  // Number of spaces for indentation
+  listNumber?: number;  // For ordered lists
 }
 
-interface StyledSegment {
-  text: string;
-  type: "bold" | "italic" | "heading" | "list" | "code" | "plain";
-  level?: number;
-}
-
-const parseFusionLine = (text: string): StyledSegment[] => {
-  const segments: StyledSegment[] = [];
-
-  // Handle all heading levels first
-  if (text.startsWith("#")) {
-    const match = text.match(/^(#{1,6})\s/);
-    if (match) {
-      return [
-        {
-          text,
-          type: "heading",
-          level: match[1].length, // Number of # symbols determines level
-        },
-      ];
+// Enhanced markdown parser for better heading support
+const parseMarkdown = (text: string, prevNode?: Node): Partial<Node> => {
+  // Heading parsing (as before)
+  const headingMatch = text.match(/^(#{1,6})(\s+)(.+?)(\s*)$/);
+  if (headingMatch) {
+    const level = headingMatch[1].length;
+    if (level <= 6) {
+      const content = headingMatch[3].trim();
+      if (content) {
+        return {
+          type: 'heading',
+          level,
+          content,
+          rawContent: text
+        };
+      }
     }
   }
 
-  // Process the text segment by segment
-  let position = 0;
-  let result = "";
+  // List item parsing
+  // Match both unordered (-, *, +) and ordered (1., 2., etc.) lists with indentation
+  const listMatch = text.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
+  if (listMatch) {
+    const [, indent, marker, content] = listMatch;
+    const indentLevel = Math.floor(indent.length / 2);
 
-  while (position < text.length) {
-    // Bold
-    if (text.slice(position).match(/^\*\*.*?\*\*/)) {
-      const match = text.slice(position).match(/^\*\*(.*?)\*\*/);
-      if (match) {
-        if (result) {
-          segments.push({ text: result, type: "plain" });
-          result = "";
-        }
-        segments.push({ text: match[0], type: "bold" });
-        position += match[0].length;
-        continue;
-      }
-    }
+    const isOrdered = /^\d+\.$/.test(marker);
+    const listType = isOrdered ? 'ordered' : 'bullet';
+    const listNumber = isOrdered ? parseInt(marker) : undefined;
 
-    // Italic (using single asterisk)
-    if (text.slice(position).match(/^\*[^*].*?\*/)) {
-      const match = text.slice(position).match(/^\*(.*?)\*/);
-      if (match) {
-        if (result) {
-          segments.push({ text: result, type: "plain" });
-          result = "";
-        }
-        segments.push({ text: match[0], type: "italic" });
-        position += match[0].length;
-        continue;
-      }
-    }
-
-    // Inline Code
-    if (text.slice(position).match(/^`.*?`/)) {
-      const match = text.slice(position).match(/^`(.*?)`/);
-      if (match) {
-        if (result) {
-          segments.push({ text: result, type: "plain" });
-          result = "";
-        }
-        segments.push({ text: match[0], type: "code" });
-        position += match[0].length;
-        continue;
-      }
-    }
-
-    // Lists
-    if (position === 0 && text.startsWith("- ")) {
-      return [{ text, type: "list" }];
-    }
-
-    result += text[position];
-    position++;
+    return {
+      type: 'list_item',
+      content: content.trim(),
+      rawContent: text,
+      listType,
+      listIndent: indentLevel,
+      listNumber
+    };
   }
 
-  if (result) {
-    segments.push({ text: result, type: "plain" });
-  }
-
-  return segments.length ? segments : [{ text, type: "plain" }];
+  // Empty or non-list content
+  return {
+    type: 'paragraph',
+    content: text,
+    rawContent: text
+  };
 };
 
 const FusionLine: React.FC<{
-  text: string;
+  node: Node;
   isActive: boolean;
-  onChange?: (text: string) => void;
-  onKeyDown?: (e: React.KeyboardEvent) => void;
-  onClick?: (e: React.MouseEvent) => void;
-}> = ({ text, isActive, onChange, onKeyDown, onClick }) => {
-  const segments = parseFusionLine(text);
-  const isSpecialFormat =
-    text.startsWith("#") ||
-    text.includes("**") ||
-    text.match(/(?<!\*)\*[^*].*?\*/);
-  const isList = text.startsWith("- ");
-  const hasHardBreak = text.endsWith("  ") || text.endsWith("\\");
-  const isEmptyLine = text.trim() === "";
-
-  // Helper function to get heading styles
-  const getHeadingStyles = (level: number) => {
+  onChange: (text: string) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  prevNode?: Node;
+}> = React.memo(({ node, isActive, onChange, onKeyDown, prevNode }) => {
+  const getHeadingClass = (level?: number) => {
     switch (level) {
-      case 1:
-        return "text-4xl font-bold";
-      case 2:
-        return "text-3xl font-bold";
-      case 3:
-        return "text-2xl font-bold";
-      case 4:
-        return "text-xl font-bold";
-      case 5:
-        return "text-lg font-bold";
-      case 6:
-        return "text-base font-bold";
-      default:
-        return "";
+      case 1: return 'text-5xl font-extrabold text-white tracking-tight';
+      case 2: return 'text-4xl font-bold text-white tracking-tight';
+      case 3: return 'text-3xl font-bold text-white tracking-tight';
+      case 4: return 'text-2xl font-bold text-white tracking-tight';
+      case 5: return 'text-xl font-bold text-white tracking-tight';
+      case 6: return 'text-lg font-bold text-white tracking-tight';
+      default: return 'text-base text-white';
     }
   };
 
-  if (isActive) {
-    // Special handling for formatted text (headings, bold, italic)
-    if (isSpecialFormat) {
-      return (
-        <div className="relative" onClick={onClick}>
-          <input
-            type="text"
-            value={text}
-            onChange={(e) => onChange?.(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="opacity-0 absolute inset-0 w-full bg-transparent focus:outline-none font-mono px-4 py-1"
-            autoFocus
-          />
-          <div className="px-4 py-1 pointer-events-none font-mono">
-            {segments.map((segment, index) => {
-              switch (segment.type) {
-                case "heading":
-                  return (
-                    <span
-                      key={index}
-                      className={`block ${getHeadingStyles(segment.level || 1)} mb-4`}
-                    >
-                      {segment.text}
-                    </span>
-                  );
-                case "bold":
-                  return (
-                    <span key={index} className="font-bold">
-                      {segment.text}
-                    </span>
-                  );
-                case "italic":
-                  return (
-                    <span key={index} className="italic">
-                      {segment.text}
-                    </span>
-                  );
-                default:
-                  return <span key={index}>{segment.text}</span>;
-              }
-            })}
-          </div>
-          <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
-        </div>
-      );
-    }
-
-    // List handling
-    if (isList) {
-      return (
-        <div className="relative" onClick={onClick}>
-          <input
-            type="text"
-            value={text}
-            onChange={(e) => onChange?.(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="opacity-0 absolute inset-0 w-full bg-transparent focus:outline-none font-mono px-4 py-1"
-            autoFocus
-          />
-          <div className="flex items-start px-4 py-1 pointer-events-none">
-            <span className="text-gray-400 w-6 text-center">-</span>
-            <span className="flex-1 font-mono">{text.slice(2)}</span>
-          </div>
-          <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
-        </div>
-      );
-    }
-
-    // Regular line handling (normal line)
+  // Render list item with proper indentation and marker
+  const renderListItem = (node: Node) => {
+    const indentSize = node.listIndent || 0;
+    const marker = node.listType === 'ordered' ? `${node.listNumber}.` : '•';
+    
     return (
-      <div className="relative" onClick={onClick}>
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => onChange?.(e.target.value)}
-          onKeyDown={onKeyDown}
-          className={`
-                w-full bg-transparent focus:outline-none font-mono px-4 py-1
-                ${hasHardBreak ? "border-r-2 border-gray-600" : ""}
-              `}
-          autoFocus
-        />
-        <div className="absolute inset-0 bg-gray-800 opacity-20 rounded" />
+      <div className={`
+        flex items-start
+        ${indentSize > 0 ? `ml-${indentSize * 6}` : ''}
+        group/item
+      `}>
+        <span className="w-6 text-gray-500 flex-shrink-0 group-hover/item:text-gray-400">
+          {marker}
+        </span>
+        <span className="flex-1">{node.content}</span>
+      </div>
+    );
+  };
+
+  if (!isActive) {
+    return (
+      <div className={`
+        px-3 py-1.5
+        ${node.type === 'list_item' ? 'my-0.5' : 'my-2'}
+        ${node.type === 'list_item' && prevNode?.type === 'list_item' ? '-mt-0.5' : ''}
+      `}>
+        {node.type === 'heading' ? (
+          <div className={`${getHeadingClass(node.level)} mb-4`}>
+            {node.content}
+          </div>
+        ) : node.type === 'list_item' ? (
+          renderListItem(node)
+        ) : (
+          <div>{node.content}</div>
+        )}
       </div>
     );
   }
 
-  // Non-active lines
-  if (isEmptyLine) {
-    // Increase paragraph break spacing
-    return <div className="h-6" onClick={onClick} />;
-  }
+  // For active line, we'll style the raw markdown
+  const activeClass = node.type === 'heading' ? getHeadingClass(node.level) : 'text-base';
+  const indentSize = node.listIndent || 0;
 
   return (
-    <div
-      className={`
-            ${
-              hasHardBreak
-                ? "py-0.5" // Tighter spacing for line breaks
-                : "py-2" // More spacing for paragraphs
-            }
-            px-4
-            group-hover:bg-gray-900
-            group-hover:bg-opacity-20
-            rounded
-            transition-colors
-            duration-100
-          `}
-      onClick={onClick}
-    >
-      {segments.map((segment, index) => {
-        switch (segment.type) {
-          case "heading":
-            return (
-              <span
-                key={index}
-                className={`block ${getHeadingStyles(segment.level || 1)} mb-4`}
-              >
-                {segment.text.replace(/^#+\s+/, "")}
-              </span>
-            );
-          case "list":
-            return (
-              <div key={index} className="flex items-start">
-                <span className="text-gray-400 w-6 text-center">•</span>
-                <span className="flex-1">{segment.text.slice(2)}</span>
-              </div>
-            );
-          case "bold":
-            return (
-              <span key={index} className="font-bold">
-                {segment.text.replace(/\*\*/g, "")}
-              </span>
-            );
-          case "italic":
-            return (
-              <span key={index} className="italic">
-                {segment.text.replace(/\*/g, "")}
-              </span>
-            );
-          case "code":
-            return (
-              <span key={index} className="bg-gray-800 px-1 rounded font-mono">
-                {segment.text.replace(/`/g, "")}
-              </span>
-            );
-          default:
-            return <span key={index}>{segment.text}</span>;
-        }
-      })}
-      {hasHardBreak && <span className="text-gray-600 ml-1 text-sm">↵</span>}
+    <div className={`
+      relative
+      ${node.type === 'list_item' ? `ml-${indentSize * 6}` : ''}
+    `}>
+      <input
+        type="text"
+        value={node.rawContent}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        className={`
+          w-full bg-transparent px-3 py-1.5
+          focus:outline-none font-mono
+          ${activeClass}
+        `}
+        autoFocus
+      />
     </div>
   );
-};
+});
 
 const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
-  const [lines, setLines] = useState<Line[]>([
-    { id: "1", text: "", isActive: true },
+  const [nodes, setNodes] = useState<Node[]>([
+    { id: '1', type: 'paragraph', content: '', rawContent: '' }
   ]);
+  const [activeId, setActiveId] = useState<string>('1');
   const [currentFilePath, setCurrentFilePath] = useState<string>("");
+  
   const editorRef = useRef<HTMLDivElement>(null);
 
-  const handleLineChange = (id: string, newText: string) => {
-    setLines((prevLines) =>
-      prevLines.map((line) => {
-        if (line.id === id) {
-          // If user types "- " at the start, it's a new list item
-          if (newText === "- " && !line.text.startsWith("- ")) {
-            return { ...line, text: newText };
-          }
-
-          // If it's already a list item, preserve the "- " prefix
-          if (line.text.startsWith("- ")) {
-            // Don't allow removing the "- " prefix by normal typing
-            if (!newText.startsWith("- ")) {
-              return { ...line, text: "- " + newText };
-            }
-          }
-
-          return { ...line, text: newText };
+  const handleNodeChange = (id: string, newContent: string) => {
+    setNodes(prevNodes => {
+      const currentIndex = prevNodes.findIndex(n => n.id === id);
+      const prevNode = currentIndex > 0 ? prevNodes[currentIndex - 1] : undefined;
+      
+      // If content is empty and was a list item, convert to paragraph
+      if (newContent.trim() === '' && prevNodes[currentIndex].type === 'list_item') {
+        return prevNodes.map(node => 
+          node.id === id 
+            ? { ...node, type: 'paragraph', content: '', rawContent: '', listType: undefined, listIndent: undefined }
+            : node
+        );
+      }
+      
+      return prevNodes.map(node => {
+        if (node.id === id) {
+          const parsed = parseMarkdown(newContent, prevNode);
+          return { ...node, ...parsed };
         }
-        return line;
-      }),
-    );
-  };
-
-  const navigateLines = (currentId: string, direction: "up" | "down") => {
-    const currentIndex = lines.findIndex((l) => l.id === currentId);
-    let nextIndex;
-
-    if (direction === "up") {
-      nextIndex = Math.max(0, currentIndex - 1);
-    } else {
-      nextIndex = Math.min(lines.length - 1, currentIndex + 1);
-    }
-
-    setLines((prevLines) =>
-      prevLines.map((line, index) => ({
-        ...line,
-        isActive: index === nextIndex,
-      })),
-    );
-  };
-
-  const removeLine = (lineId: string) => {
-    const currentIndex = lines.findIndex((l) => l.id === lineId);
-
-    if (lines.length === 1) {
-      return;
-    }
-
-    setLines((prevLines) => {
-      const newLines = prevLines.filter((line) => line.id !== lineId);
-      const newActiveIndex = Math.max(0, currentIndex - 1);
-      return newLines.map((line, index) => ({
-        ...line,
-        isActive: index === newActiveIndex,
-      }));
+        return node;
+      });
     });
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent, lineId: string) => {
-    const currentIndex = lines.findIndex((l) => l.id === lineId);
-    const currentLine = lines[currentIndex];
-    const isListItem = currentLine.text.startsWith("- ");
+  const handleKeyDown = (e: React.KeyboardEvent, nodeId: string) => {
+    const currentIndex = nodes.findIndex(n => n.id === nodeId);
+    const currentNode = nodes[currentIndex];
+    
+    // Handle list-specific behavior
+    if (currentNode.type === 'list_item') {
+      // Tab for nesting
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const newIndent = e.shiftKey 
+          ? Math.max(0, (currentNode.listIndent || 0) - 1)
+          : (currentNode.listIndent || 0) + 1;
 
-    // Handle Shift+Enter for hard break
-    if (event.key === "Enter" && event.shiftKey) {
-      event.preventDefault();
-
-      // Add two spaces to the end of the current line for markdown line break
-      setLines((prevLines) =>
-        prevLines.map((line) =>
-          line.id === lineId ? { ...line, text: line.text + "  " } : line,
-        ),
-      );
-
-      // Create new line
-      const newLine: Line = {
-        id: Date.now().toString(),
-        text: "",
-        isActive: true,
-      };
-
-      // Add the new line after the current one
-      setLines((prevLines) => {
-        const newLines = [
-          ...prevLines.slice(0, currentIndex + 1),
-          newLine,
-          ...prevLines.slice(currentIndex + 1),
-        ];
-        return newLines.map((line) => ({
-          ...line,
-          isActive: line.id === newLine.id,
-        }));
-      });
-
-      return;
-    }
-
-    // Handle regular Enter
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-
-      // Handle list continuation
-      if (isListItem) {
-        // Break out of list if line is empty
-        if (currentLine.text === "- ") {
-          setLines((prevLines) =>
-            prevLines.map((line) =>
-              line.id === lineId ? { ...line, text: "" } : line,
-            ),
-          );
-          return;
-        }
-
-        // Continue list
-        const newLine: Line = {
-          id: Date.now().toString(),
-          text: "- ",
-          isActive: true,
-        };
-
-        setLines((prevLines) => {
-          const newLines = [
-            ...prevLines.slice(0, currentIndex + 1),
-            newLine,
-            ...prevLines.slice(currentIndex + 1),
-          ];
-          return newLines.map((line) => ({
-            ...line,
-            isActive: line.id === newLine.id,
-          }));
-        });
+        setNodes(prevNodes =>
+          prevNodes.map(node => {
+            if (node.id === nodeId) {
+              // Update the raw content with proper indentation
+              const spaces = '  '.repeat(newIndent);
+              const listMarker = node.listType === 'ordered' ? '1. ' : '- ';
+              const content = node.content;
+              
+              return {
+                ...node,
+                listIndent: newIndent,
+                rawContent: `${spaces}${listMarker}${content}`
+              };
+            }
+            return node;
+          })
+        );
         return;
       }
 
-      // Regular new line
-      const newLine: Line = {
-        id: Date.now().toString(),
-        text: "",
-        isActive: true,
-      };
-
-      setLines((prevLines) => {
-        const newLines = [
-          ...prevLines.slice(0, currentIndex + 1),
-          newLine,
-          ...prevLines.slice(currentIndex + 1),
-        ];
-        return newLines.map((line) => ({
-          ...line,
-          isActive: line.id === newLine.id,
-        }));
-      });
-      return;
-    }
-
-    // Handle other keys
-    switch (event.key) {
-      case "Backspace":
-        if (isListItem && window.getSelection()?.anchorOffset === 2) {
-          event.preventDefault();
-          setLines((prevLines) =>
-            prevLines.map((line) =>
-              line.id === lineId ? { ...line, text: "" } : line,
-            ),
-          );
-          return;
-        }
-
-        if (currentLine.text === "" && lines.length > 1) {
-          event.preventDefault();
-          removeLine(lineId);
-        }
-        break;
-
-      case "ArrowUp":
-        event.preventDefault();
-        navigateLines(lineId, "up");
-        break;
-
-      case "ArrowDown":
-        event.preventDefault();
-        navigateLines(lineId, "down");
-        break;
-    }
-  };
-
-  const handleEditorClick = (event: React.MouseEvent) => {
-    if (
-      event.target === event.currentTarget ||
-      event.target === editorRef.current?.firstChild
-    ) {
-      if (lines.every((line) => !line.isActive)) {
-        setLines((prevLines) =>
-          prevLines.map((line, index) => ({
-            ...line,
-            isActive: index === prevLines.length - 1,
-          })),
+       // Exit list on empty content
+       if (e.key === 'Enter' && currentNode.content.trim() === '') {
+        e.preventDefault();
+        setNodes(prevNodes =>
+          prevNodes.map(node =>
+            node.id === nodeId
+              ? { ...node, type: 'paragraph', listType: undefined, listIndent: undefined, content: '', rawContent: '' }
+              : node
+          )
         );
+        return;
       }
     }
-  };
 
-  const handleLineClick = (id: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    setLines((prevLines) =>
-      prevLines.map((line) => ({
-        ...line,
-        isActive: line.id === id,
-      })),
-    );
+    // Continue list on Enter
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      
+      const newNode: Node = {
+        id: Math.random().toString(36).substr(2, 9),
+        type: currentNode.type === 'list_item' ? 'list_item' : 'paragraph',
+        content: '',
+        rawContent: '',
+        ...(currentNode.type === 'list_item' && {
+          listType: currentNode.listType,
+          listIndent: currentNode.listIndent,
+          listNumber: currentNode.listType === 'ordered' ? (currentNode.listNumber || 0) + 1 : undefined
+        })
+      };
+
+      // Set initial raw content for list items
+      if (newNode.type === 'list_item') {
+        const spaces = '  '.repeat(newNode.listIndent || 0);
+        const marker = newNode.listType === 'ordered' ? `${newNode.listNumber}. ` : '- ';
+        newNode.rawContent = `${spaces}${marker}`;
+      }
+      
+      setNodes(prevNodes => [
+        ...prevNodes.slice(0, currentIndex + 1),
+        newNode,
+        ...prevNodes.slice(currentIndex + 1)
+      ]);
+      setActiveId(newNode.id);
+      return;
+    }
+    
+    if (e.key === 'ArrowUp' && currentIndex > 0) {
+      e.preventDefault();
+      setActiveId(nodes[currentIndex - 1].id);
+    }
+    
+    if (e.key === 'ArrowDown' && currentIndex < nodes.length - 1) {
+      e.preventDefault();
+      setActiveId(nodes[currentIndex + 1].id);
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      handleSave();
+    }
+
+    if (e.key === 'Backspace' && currentNode.content === '' && nodes.length > 1) {
+      e.preventDefault();
+      const newNodes = nodes.filter((_, i) => i !== currentIndex);
+      setNodes(newNodes);
+      setActiveId(newNodes[Math.max(0, currentIndex - 1)].id);
+    }
   };
 
   const handleSave = async () => {
     try {
-      // Get file path - either existing or from save dialog
       let filePath = currentFilePath;
       if (!filePath) {
         const path = await save({
           defaultPath: "untitled.md",
-          filters: [
-            {
-              name: "Markdown",
-              extensions: ["md"],
-            },
-          ],
+          filters: [{ name: "Markdown", extensions: ["md"] }],
         });
 
-        if (!path) return; // User cancelled
+        if (!path) return;
         filePath = path;
         setCurrentFilePath(filePath);
       }
 
-      // Prepare content
-      const content = lines.map((line) => line.text).join("\n");
+      const content = nodes.map(node => node.rawContent).join('\n');
 
-      // Save file
       await invoke<string>("save_file", {
         request: {
           name: filePath,
@@ -546,27 +314,12 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         },
       });
 
-      // Notify parent for file tree refresh
       onSave?.();
     } catch (err) {
       console.error("Failed to save:", err);
     }
   };
 
-  // Update the effect hook to use proper dependencies
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown); // Changed from window to document to match your implementation
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [lines]); // Only depend on lines since we're getting currentFilePath from props
-
-  // Load file content when filePath changes
   useEffect(() => {
     const loadFile = async () => {
       if (!filePath) return;
@@ -575,15 +328,14 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
         const file = await invoke<FileContent>("read_file", { path: filePath });
         setCurrentFilePath(file.path);
 
-        // Convert content to lines
-        const content = file.content.split("\n");
-        setLines(
-          content.map((text, index) => ({
-            id: String(index + 1),
-            text,
-            isActive: index === 0,
-          })),
-        );
+        const newNodes = file.content.split('\n')
+          .map(line => ({
+            id: Math.random().toString(36).substr(2, 9),
+            ...parseMarkdown(line)
+          } as Node));
+        
+        setNodes(newNodes);
+        setActiveId(newNodes[0].id);
       } catch (err) {
         console.error("Failed to load file:", err);
       }
@@ -592,22 +344,45 @@ const MarkdownEditor: React.FC<EditorProps> = ({ onSave, filePath }) => {
     loadFile();
   }, [filePath]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, currentFilePath]);
+
   return (
-    <div
+    <div 
       ref={editorRef}
-      className="h-full bg-gray-950 text-gray-100 overflow-auto focus:outline-none"
-      onClick={handleEditorClick}
+      className="h-full bg-gray-950 text-gray-100 overflow-auto"
+      onClick={() => editorRef.current?.focus()}
       tabIndex={-1}
     >
-      <div className="min-h-full space-y-1">
-        {lines.map((line) => (
-          <div key={line.id} className="relative rounded cursor-text group">
+      <div className="min-h-full p-4">
+        {nodes.map((node, index) => (
+          <div
+            key={node.id}
+            className={`
+              relative rounded-md mb-1 cursor-text
+              ${node.id === activeId ? 'bg-gray-800/20' : ''}
+              hover:bg-gray-900/20 transition-colors duration-100
+            `}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveId(node.id);
+            }}
+          >
             <FusionLine
-              text={line.text}
-              isActive={line.isActive}
-              onChange={(newText) => handleLineChange(line.id, newText)}
-              onKeyDown={(e) => handleKeyDown(e, line.id)}
-              onClick={(e) => handleLineClick(line.id, e)}
+              node={node}
+              isActive={node.id === activeId}
+              onChange={text => handleNodeChange(node.id, text)}
+              onKeyDown={e => handleKeyDown(e, node.id)}
+              prevNode={index > 0 ? nodes[index - 1] : undefined}
             />
           </div>
         ))}
