@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { useState } from "react";
-import MarkdownEditor from "./components/Editor";
+import Editor from "./components/Editor";
 import FileTree from "./components/FileTree";
 
 function App() {
@@ -29,7 +29,7 @@ function App() {
         />
       </div>
       <div className="flex-1 h-full">
-        <MarkdownEditor onSave={handleSave} filePath={selectedFilePath} />
+        <Editor onSave={handleSave} filePath={selectedFilePath} />
       </div>
     </div>
   );
