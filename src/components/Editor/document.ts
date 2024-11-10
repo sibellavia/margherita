@@ -97,4 +97,25 @@ export class Document {
   public toMarkdown(): string {
     return this.state.nodes.map(n => n.rawContent).join('\n');
   }
+
+  public deleteSelectedContent(): void {
+    if (!this.state.selection || this.state.selection.type === 'none') return;
+
+    debug.log('Deleting selected content', { selectionType: this.state.selection.type });
+
+    if (this.state.selection.type === 'document') {
+      // Delete all content and create an empty node
+      this.state.nodes = [this.createEmptyNode()];
+      this.state.activeNodeId = this.state.nodes[0].id;
+    } else if (this.state.selection.type === 'line') {
+      const currentNodeIndex = this.state.nodes.findIndex(n => n.id === this.state.activeNodeId);
+      if (currentNodeIndex !== -1) {
+        // Replace the selected line with an empty node
+        this.state.nodes[currentNodeIndex] = this.createEmptyNode();
+      }
+    }
+
+    // Clear selection after deletion
+    this.state.selection = null;
+  }
 }

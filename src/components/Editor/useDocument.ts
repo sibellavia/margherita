@@ -41,6 +41,11 @@ export function useDocument(content: string) {
     setState(document.getState());
   }, [document]);
 
+  const handleDeleteSelected = useCallback(() => {
+    document.deleteSelectedContent();
+    setState(document.getState());
+  }, [document]);
+
   return {
     state,
     handlers: {
@@ -48,7 +53,8 @@ export function useDocument(content: string) {
       handleSelectionChange,
       handleActiveNodeChange,
       handleNodeInsert,
-      handleNodeRemove
+      handleNodeRemove,
+      handleDeleteSelected
     }
   };
 }

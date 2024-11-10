@@ -131,9 +131,10 @@ export const EditorLine: React.FC<EditorLineProps> = ({
     <div
       data-line-id={node.id}
       className={`
-        rounded-md transition-colors duration-100
+        cursor-text rounded-md transition-colors duration-100
         ${isActive ? 'bg-gray-800/20 ring-1 ring-gray-700' : 'hover:bg-gray-900/20'}
       `}
+      onClick={onFocus}
     >
       {isActive ? (
         <input

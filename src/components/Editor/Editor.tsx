@@ -4,20 +4,19 @@ import { EditorLine } from './EditorLine';
 import { Selection, DocumentNode } from './types';
 import { SelectionManager } from './selection';
 import { debug } from './debug';
+import { save } from '@tauri-apps/plugin-dialog';
 
 interface EditorProps {
   content: string;
-  onSave?: (content: string) => Promise<void>;
+  onSave: (content: string, path: string) => Promise<void>;
 }
 
-export const Editor: React.FC<EditorProps> = ({ 
+export const Editor: React.FC<EditorProps> = ({
   content = '',
-  onSave 
+  onSave
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const { state, handlers } = useDocument(content);
-  
-  // Create a persistent instance of SelectionManager
   const selectionManager = useMemo(() => new SelectionManager(), []);
 
   // Handle keyboard navigation
@@ -98,7 +97,7 @@ export const Editor: React.FC<EditorProps> = ({
 
       const anchorElement = findLineElement(selection.anchorNode);
       const focusElement = findLineElement(selection.focusNode);
-      
+
       if (!anchorElement || !focusElement) return;
 
       const newSelection: Selection = {
@@ -125,15 +124,27 @@ export const Editor: React.FC<EditorProps> = ({
   }, [handlers, selectionManager]);
 
   // Handle keyboard shortcuts
-  // Handle keyboard shortcuts
   useEffect(() => {
-    const handleGlobalKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
       // Save shortcut
-      if ((e.metaKey || e.ctrlKey) && e.key === 's' && onSave) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
         try {
-          await onSave(state.nodes.map((n: DocumentNode) => n.rawContent).join('\n'));
-          debug.log('Document saved successfully');
+          const path = await save({
+            filters: [{
+              name: 'Markdown',
+              extensions: ['md']
+            }]
+          });
+
+          if (path) {
+            debug.log('Save dialog completed', { path });
+            const content = state.nodes.map((n: DocumentNode) => n.rawContent).join('\n');
+            await onSave(content, path);
+            debug.log('Document saved successfully');
+          } else {
+            debug.warn('Save cancelled by user');
+          }
         } catch (err) {
           debug.error('Failed to save document', err);
         }
@@ -154,44 +165,56 @@ export const Editor: React.FC<EditorProps> = ({
         const newSelection = selectionManager.handleSelectAll(state.nodes, currentLine);
         handlers.handleSelectionChange(newSelection);
 
-        // Update UI selection
+        // Update visual selection
         const selection = window.getSelection();
         if (selection) {
           selection.removeAllRanges();
           const range = document.createRange();
 
           if (newSelection.type === 'document') {
-            // Select entire document
+            // Select entire editor content
             const firstNode = editorRef.current?.firstChild;
             const lastNode = editorRef.current?.lastChild;
             if (firstNode && lastNode) {
+              debug.log('Selecting entire document');
               range.setStartBefore(firstNode);
               range.setEndAfter(lastNode);
+              selection.addRange(range);
             }
           } else if (newSelection.type === 'line') {
             // Select current line
             const lineElement = document.querySelector(`[data-line-id="${state.nodes[currentLine].id}"]`);
             if (lineElement) {
-              let textElement = lineElement.querySelector('input') || lineElement.querySelector('div');
+              debug.log('Selecting current line');
+              const isActiveLine = state.nodes[currentLine].id === state.activeNodeId;
+              const textElement = lineElement.querySelector(isActiveLine ? 'input' : 'div');
               if (textElement) {
                 if (textElement instanceof HTMLInputElement) {
                   textElement.select();
-                  return; // Early return as select() handles the selection for inputs
                 } else {
                   range.selectNodeContents(textElement);
+                  selection.addRange(range);
                 }
               }
             }
           }
-          
-          selection.addRange(range);
+        }
+        return;
+      }
+
+      // Handle deletion of selected content
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (state.selection?.type === 'document') {
+          e.preventDefault();
+          debug.log('Deleting selected content');
+          handlers.handleDeleteSelected();
         }
       }
     };
 
-    document.addEventListener('keydown', handleGlobalKeyDown);
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [state.nodes, onSave, state.activeNodeId, handlers, selectionManager]);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [state.nodes, state.selection, onSave, state.activeNodeId, handlers, selectionManager]);
 
   // Helper functions for selection handling
   const findLineElement = (node: globalThis.Node | null): HTMLElement | null => {
@@ -207,7 +230,7 @@ export const Editor: React.FC<EditorProps> = ({
   };
 
   return (
-    <div 
+    <div
       ref={editorRef}
       className="h-full bg-gray-950 text-gray-100 overflow-auto outline-none"
       tabIndex={-1}
