@@ -5,11 +5,18 @@ export interface Position {
   column: number;
 }
 
-export interface Selection {
-  anchor: Position;
-  focus: Position;
-  isCollapsed: boolean;
+export interface Range {
+  start: Position;
+  end: Position;
 }
+
+export interface Selection {
+  range: Range;
+  isCollapsed: boolean;
+  type: SelectionType;
+}
+
+export type SelectionType = 'none' | 'text' | 'line' | 'document';
 
 export interface NodeAttributes {
   level?: number;        // For headings (1-6)
@@ -27,11 +34,12 @@ export interface Node {
   attributes: NodeAttributes;
 }
 
-// Alias for Node to avoid conflicts with DOM Node
 export type DocumentNode = Node;
 
 export interface DocumentState {
   nodes: DocumentNode[];
   selection: Selection | null;
   activeNodeId: string | null;
+  lastSelectionType?: SelectionType; // For tracking double Cmd/Ctrl+A
+  lastSelectionTime?: number;        // For timing double Cmd/Ctrl+A
 }

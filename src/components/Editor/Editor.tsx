@@ -1,7 +1,8 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocument } from './useDocument';
 import { EditorLine } from './EditorLine';
 import { Selection, DocumentNode } from './types';
+import { SelectionManager } from './selection';
 import { debug } from './debug';
 
 interface EditorProps {
@@ -15,6 +16,9 @@ export const Editor: React.FC<EditorProps> = ({
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const { state, handlers } = useDocument(content);
+  
+  // Create a persistent instance of SelectionManager
+  const selectionManager = useMemo(() => new SelectionManager(), []);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -98,14 +102,17 @@ export const Editor: React.FC<EditorProps> = ({
       if (!anchorElement || !focusElement) return;
 
       const newSelection: Selection = {
-        anchor: {
-          line: getLineNumber(anchorElement),
-          column: selection.anchorOffset
+        range: {
+          start: {
+            line: getLineNumber(anchorElement),
+            column: selection.anchorOffset
+          },
+          end: {
+            line: getLineNumber(focusElement),
+            column: selection.focusOffset
+          }
         },
-        focus: {
-          line: getLineNumber(focusElement),
-          column: selection.focusOffset
-        },
+        type: 'text',
         isCollapsed: selection.isCollapsed
       };
 
@@ -115,11 +122,13 @@ export const Editor: React.FC<EditorProps> = ({
 
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, [handlers]);
+  }, [handlers, selectionManager]);
 
+  // Handle keyboard shortcuts
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleGlobalKeyDown = async (e: KeyboardEvent) => {
+      // Save shortcut
       if ((e.metaKey || e.ctrlKey) && e.key === 's' && onSave) {
         e.preventDefault();
         try {
@@ -128,12 +137,61 @@ export const Editor: React.FC<EditorProps> = ({
         } catch (err) {
           debug.error('Failed to save document', err);
         }
+        return;
+      }
+
+      // Select all
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault();
+        const currentLine = state.nodes.findIndex(n => n.id === state.activeNodeId);
+        if (currentLine === -1) return;
+
+        debug.log('Cmd/Ctrl+A pressed', {
+          currentLine,
+          selectionState: selectionManager.getDebugState()
+        });
+
+        const newSelection = selectionManager.handleSelectAll(state.nodes, currentLine);
+        handlers.handleSelectionChange(newSelection);
+
+        // Update UI selection
+        const selection = window.getSelection();
+        if (selection) {
+          selection.removeAllRanges();
+          const range = document.createRange();
+
+          if (newSelection.type === 'document') {
+            // Select entire document
+            const firstNode = editorRef.current?.firstChild;
+            const lastNode = editorRef.current?.lastChild;
+            if (firstNode && lastNode) {
+              range.setStartBefore(firstNode);
+              range.setEndAfter(lastNode);
+            }
+          } else if (newSelection.type === 'line') {
+            // Select current line
+            const lineElement = document.querySelector(`[data-line-id="${state.nodes[currentLine].id}"]`);
+            if (lineElement) {
+              let textElement = lineElement.querySelector('input') || lineElement.querySelector('div');
+              if (textElement) {
+                if (textElement instanceof HTMLInputElement) {
+                  textElement.select();
+                  return; // Early return as select() handles the selection for inputs
+                } else {
+                  range.selectNodeContents(textElement);
+                }
+              }
+            }
+          }
+          
+          selection.addRange(range);
+        }
       }
     };
 
     document.addEventListener('keydown', handleGlobalKeyDown);
     return () => document.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [state.nodes, onSave]);
+  }, [state.nodes, onSave, state.activeNodeId, handlers, selectionManager]);
 
   // Helper functions for selection handling
   const findLineElement = (node: globalThis.Node | null): HTMLElement | null => {
