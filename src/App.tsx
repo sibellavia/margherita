@@ -1,23 +1,56 @@
+// src/App.tsx
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
-import { useState } from "react";
-import MarkdownEditor from "./components/Editor";
+import { useState, useCallback } from "react";
+import { Editor } from "./components/Editor/Editor";
 import FileTree from "./components/FileTree";
+import { debug } from "./components/Editor/debug"
+
+interface FileContent {
+  path: string;
+  content: string;
+}
 
 function App() {
-  // keep track of the current file path and when to refresh the file tree
   const [selectedFilePath, setSelectedFilePath] = useState<string>("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [currentContent, setCurrentContent] = useState<string>("");
 
-  // Called when a file is selected in the file tree
-  const handleFileSelect = (path: string) => {
-    setSelectedFilePath(path);
-  };
+  // Load file content when a file is selected
+  const handleFileSelect = useCallback(async (path: string) => {
+    try {
+      debug.log('Loading file:', path);
+      const file = await invoke<FileContent>("read_file", { path });
+      setSelectedFilePath(path); // Use the relative path
+      setCurrentContent(file.content);
+    } catch (err) {
+      debug.error('Failed to load file:', err);
+    }
+  }, []);
 
-  // Called after a successful save to refresh the file tree
-  const handleSave = () => {
-    setRefreshTrigger((prev) => prev + 1);
-  };
+  // Save file content and refresh the file tree
+  const handleSave = useCallback(async (content: string) => {
+    if (!selectedFilePath) {
+      debug.warn('No file selected for save');
+      return;
+    }
+
+    try {
+      await invoke<string>("save_file", {
+        request: {
+          name: selectedFilePath,
+          content,
+        },
+      });
+
+      debug.log('File saved successfully', { path: selectedFilePath });
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err) {
+      debug.error('Failed to save file', err);
+      // might want to add error handling UI here
+      throw err; // Re-throw to let the Editor component handle the error
+    }
+  }, [selectedFilePath]);
 
   return (
     <div className="flex h-screen bg-gray-950">
@@ -29,7 +62,10 @@ function App() {
         />
       </div>
       <div className="flex-1 h-full">
-        <MarkdownEditor onSave={handleSave} filePath={selectedFilePath} />
+        <Editor 
+          content={currentContent || ''}
+          onSave={handleSave}
+        />
       </div>
     </div>
   );
